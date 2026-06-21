@@ -1,0 +1,67 @@
+{
+  "$schema": "https://www.raycast.com/schemas/extension.json",
+  "name": "window-switcher-current-screen",
+  "title": "Window Switcher on Current Screen",
+  "description": "Switch between windows filtered to the screen under your mouse cursor, and warp the cursor between screens.",
+  "icon": "extension-icon.png",
+  "author": "nilleb",
+  "categories": ["Productivity", "System"],
+  "license": "MIT",
+  "platforms": ["macOS"],
+  "commands": [
+    {
+      "name": "switch-windows",
+      "title": "Switch Windows on Current Screen",
+      "description": "List windows on the screen under the cursor (or all screens) and focus one.",
+      "mode": "view",
+      "preferences": [
+        {
+          "name": "defaultScope",
+          "title": "Default Scope",
+          "description": "Which windows to show when the command opens.",
+          "type": "dropdown",
+          "required": false,
+          "default": "current",
+          "data": [
+            { "title": "Current screen", "value": "current" },
+            { "title": "All screens", "value": "everywhere" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "focus-next-screen",
+      "title": "Focus Next Screen",
+      "description": "Move the mouse cursor to the center of the next screen (cyclic).",
+      "mode": "no-view"
+    },
+    {
+      "name": "focus-previous-screen",
+      "title": "Focus Previous Screen",
+      "description": "Move the mouse cursor to the center of the previous screen (cyclic).",
+      "mode": "no-view"
+    }
+  ],
+  "dependencies": {
+    "@raycast/api": "^1.103.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "@types/react": "^19.0.10",
+    "@typescript-eslint/eslint-plugin": "^5.62.0",
+    "@typescript-eslint/parser": "^5.62.0",
+    "eslint": "^7.32.0",
+    "eslint-config-prettier": "^8.10.0",
+    "prettier": "^2.5.1",
+    "react": "^18.2.0",
+    "typescript": "^4.4.3"
+  },
+  "scripts": {
+    "build": "ray build",
+    "build:swift": "swiftc -O swift/cursor-screen.swift -o assets/cursor-screen",
+    "dev": "ray develop",
+    "fix-lint": "ray lint --fix",
+    "lint": "ray lint",
+    "publish": "npx @raycast/api@latest publish"
+  }
+}
