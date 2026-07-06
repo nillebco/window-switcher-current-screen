@@ -30,6 +30,18 @@
       ]
     },
     {
+      "name": "list-screens",
+      "title": "List Screens",
+      "description": "List all displays and flag which are virtual vs physical.",
+      "mode": "view"
+    },
+    {
+      "name": "list-spaces",
+      "title": "List Spaces",
+      "description": "List Mission Control Spaces (Desktops) per display, flagging the current one.",
+      "mode": "view"
+    },
+    {
       "name": "focus-next-screen",
       "title": "Focus Next Screen",
       "description": "Move the mouse cursor to the center of the next screen (cyclic).",
@@ -39,6 +51,12 @@
       "name": "focus-previous-screen",
       "title": "Focus Previous Screen",
       "description": "Move the mouse cursor to the center of the previous screen (cyclic).",
+      "mode": "no-view"
+    },
+    {
+      "name": "click-at-cursor",
+      "title": "Click at Cursor",
+      "description": "Synthesize a left mouse click at the current cursor position.",
       "mode": "no-view"
     }
   ],

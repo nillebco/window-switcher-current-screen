@@ -10,7 +10,10 @@ warp the cursor between screens.
 | --- | --- | --- |
 | **Switch Windows on Current Screen** | view | Lists application windows on the screen under the cursor (toggle to **All screens** from the search-bar dropdown), searchable by app name and window title. Select one to raise and focus it. |
 | **Focus Next Screen** | no-view | Moves the mouse cursor to the center of the next screen (cyclic). |
+| **List Screens** | view | Lists all displays with their resolution/position, flagging Main, Built-in/External, and Virtual/Physical. |
+| **List Spaces** | view | Lists Mission Control Spaces (Desktops) grouped by display, flagging the current Space. Read-only. |
 | **Focus Previous Screen** | no-view | Moves the mouse cursor to the center of the previous screen (cyclic). |
+| **Click at Cursor** | no-view | Synthesizes a left mouse click at the current cursor position (`CGEvent`). |
 
 The default scope of the switcher ("Current screen" / "All screens") is configurable
 in the command preferences.
@@ -23,8 +26,13 @@ cannot focus an arbitrary window, so this extension bundles a tiny native helper
 
 - reports the screen under the cursor (`NSEvent.mouseLocation` + `NSScreen`),
 - warps the cursor between screens (`CGWarpMouseCursorPosition`),
-- lists on-screen windows (`CGWindowListCopyWindowInfo`), and
-- raises/focuses a chosen window (Accessibility `AXRaise` + app activation).
+- lists on-screen windows (`CGWindowListCopyWindowInfo`),
+- lists displays with their attributes (`NSScreen` + `CGDisplay*`),
+- lists Mission Control Spaces read-only via the private SkyLight framework
+  (`SLSCopyManagedDisplaySpaces` on the app's own connection — no SIP changes, no
+  writes),
+- raises/focuses a chosen window (Accessibility `AXRaise` + app activation), and
+- clicks at the cursor (`CGEvent` mouse down/up).
 
 The TypeScript commands invoke it via `child_process.execFile`.
 
@@ -32,11 +40,13 @@ The TypeScript commands invoke it via `child_process.execFile`.
 
 Grant these to **Raycast** in System Settings → Privacy & Security:
 
-- **Accessibility** — required to focus/raise windows.
+- **Accessibility** — required to focus/raise windows and to post the synthetic
+  click (**Click at Cursor**).
 - **Screen Recording** — optional; only needed to read window **titles**. Without
   it, windows are still listed and searchable by application name.
 
-Cursor warping (Focus Next/Previous Screen) needs no special permission.
+Cursor warping (Focus Next/Previous Screen) and **List Screens** need no special
+permission.
 
 ## Development
 
