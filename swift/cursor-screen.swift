@@ -16,6 +16,8 @@
 //   cursor-screen spaces         → prints a JSON array of Mission Control Spaces per display
 //                                  [{ display, displayIdentifier, spaces: [{ index, managedSpaceID,
 //                                     type, typeLabel, uuid, current }] }]
+//   cursor-screen set-frame <windowID> <x> <y> <w> <h>
+//                                → moves + resizes the window (current Space only, top-left coords)
 //
 // Permissions:
 //   - Cursor warp (next/previous): no special permission.
@@ -46,6 +48,13 @@ func screenUnderCursor() -> (index: Int, screen: NSScreen)? {
 func cgRect(for screen: NSScreen) -> CGRect {
     let primaryHeight = NSScreen.screens[0].frame.height
     let f = screen.frame
+    return CGRect(x: f.origin.x, y: primaryHeight - f.maxY, width: f.width, height: f.height)
+}
+
+/// Usable area (excludes menu bar and Dock), in top-left CG coordinates.
+func cgVisibleRect(for screen: NSScreen) -> CGRect {
+    let primaryHeight = NSScreen.screens[0].frame.height
+    let f = screen.visibleFrame
     return CGRect(x: f.origin.x, y: primaryHeight - f.maxY, width: f.width, height: f.height)
 }
 
@@ -80,6 +89,7 @@ func listScreens() {
         let displayID = CGDirectDisplayID(screenNumber(screen))
         let name = screen.localizedName
         let rect = cgRect(for: screen)
+        let visible = cgVisibleRect(for: screen)
         items.append([
             "index": idx,
             "id": Int(displayID),
@@ -94,6 +104,10 @@ func listScreens() {
             "y": Int(rect.origin.y),
             "width": Int(rect.width),
             "height": Int(rect.height),
+            "visibleX": Int(visible.origin.x),
+            "visibleY": Int(visible.origin.y),
+            "visibleWidth": Int(visible.width),
+            "visibleHeight": Int(visible.height),
         ])
     }
 
@@ -188,31 +202,45 @@ func axWindowMatches(_ window: AXUIElement, target: CGRect) -> Bool {
         abs(f.height - target.height) < tol
 }
 
-func focusWindow(windowID: CGWindowID) -> Bool {
+/// Resolves a CGWindowID to its owning app + AXUIElement window (matched by bounds).
+func axWindow(forWindowID windowID: CGWindowID) -> (pid: pid_t, app: AXUIElement, window: AXUIElement)? {
     guard let info = windowInfo(for: windowID),
           let pidInt = info[kCGWindowOwnerPID as String] as? Int,
           let boundsDict = info[kCGWindowBounds as String] as? [String: Any],
           let target = CGRect(dictionaryRepresentation: boundsDict as CFDictionary)
-    else { return false }
+    else { return nil }
 
     let pid = pid_t(pidInt)
     let appAX = AXUIElementCreateApplication(pid)
-
     var windowsRef: CFTypeRef?
     AXUIElementCopyAttributeValue(appAX, kAXWindowsAttribute as CFString, &windowsRef)
     let axWindows = (windowsRef as? [AXUIElement]) ?? []
-    let matched = axWindows.first { axWindowMatches($0, target: target) }
+    guard let win = axWindows.first(where: { axWindowMatches($0, target: target) }) else { return nil }
+    return (pid, appAX, win)
+}
+
+func focusWindow(windowID: CGWindowID) -> Bool {
+    guard let (pid, appAX, win) = axWindow(forWindowID: windowID) else { return false }
 
     // Bring the owning application forward first…
     NSRunningApplication(processIdentifier: pid)?.activate()
-
     // …then raise/focus the specific window.
-    if let win = matched {
-        AXUIElementPerformAction(win, kAXRaiseAction as CFString)
-        AXUIElementSetAttributeValue(appAX, kAXFocusedWindowAttribute as CFString, win)
-        return true
-    }
-    return matched != nil
+    AXUIElementPerformAction(win, kAXRaiseAction as CFString)
+    AXUIElementSetAttributeValue(appAX, kAXFocusedWindowAttribute as CFString, win)
+    return true
+}
+
+/// Moves + resizes a window (current Space only). Sets size, then position, then
+/// size again — some apps clamp position based on the previous size, so a second
+/// size pass makes the final frame stick.
+func setWindowFrame(windowID: CGWindowID, x: CGFloat, y: CGFloat, w: CGFloat, h: CGFloat) -> Bool {
+    guard let (_, _, win) = axWindow(forWindowID: windowID) else { return false }
+    var size = CGSize(width: w, height: h)
+    var pos = CGPoint(x: x, y: y)
+    if let s = AXValueCreate(.cgSize, &size) { AXUIElementSetAttributeValue(win, kAXSizeAttribute as CFString, s) }
+    if let p = AXValueCreate(.cgPoint, &pos) { AXUIElementSetAttributeValue(win, kAXPositionAttribute as CFString, p) }
+    if let s = AXValueCreate(.cgSize, &size) { AXUIElementSetAttributeValue(win, kAXSizeAttribute as CFString, s) }
+    return true
 }
 
 // MARK: - click
@@ -366,6 +394,16 @@ case "screens":
 
 case "spaces":
     listSpaces()
+
+case "set-frame":
+    let a = Array(args.dropFirst(2))
+    guard a.count >= 5, let id = UInt32(a[0]),
+          let x = Double(a[1]), let y = Double(a[2]), let w = Double(a[3]), let h = Double(a[4])
+    else {
+        FileHandle.standardError.write("usage: cursor-screen set-frame <windowID> <x> <y> <w> <h>\n".data(using: .utf8)!)
+        exit(1)
+    }
+    exit(setWindowFrame(windowID: CGWindowID(id), x: CGFloat(x), y: CGFloat(y), w: CGFloat(w), h: CGFloat(h)) ? 0 : 1)
 
 case "focus":
     guard let idStr = args.dropFirst(2).first, let id = UInt32(idStr) else {

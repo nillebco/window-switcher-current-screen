@@ -1,5 +1,9 @@
 # Window Switcher on Current Screen Changelog
 
+## [Arrange Visible Windows] - {PR_MERGE_DATE}
+
+- Arrange Visible Windows: tile the windows on the current screen into a weighted binary partition, each sized in proportion to its current area, with a configurable gap. Applies frames via Accessibility (current Space only); apps with a minimum window size are honored best-effort.
+
 ## [Click at Cursor + List Screens + List Spaces] - {PR_MERGE_DATE}
 
 - Click at Cursor: synthesize a left mouse click at the current cursor position (`CGEvent`; button enum in the helper leaves room for right/double-click variants).

@@ -58,6 +58,22 @@
       "title": "Click at Cursor",
       "description": "Synthesize a left mouse click at the current cursor position.",
       "mode": "no-view"
+    },
+    {
+      "name": "arrange-windows",
+      "title": "Arrange Visible Windows",
+      "description": "Tile the windows on the current screen, sized by their relative areas.",
+      "mode": "no-view",
+      "preferences": [
+        {
+          "name": "gap",
+          "title": "Gap",
+          "description": "Pixels of spacing between tiled windows.",
+          "type": "textfield",
+          "required": false,
+          "default": "8"
+        }
+      ]
     }
   ],
   "dependencies": {
