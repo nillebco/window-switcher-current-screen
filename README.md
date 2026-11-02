@@ -8,7 +8,7 @@ warp the cursor between screens.
 
 | Command | Mode | What it does |
 | --- | --- | --- |
-| **Switch Windows on Current Screen** | view | Lists application windows on the screen under the cursor (toggle to **All screens** from the search-bar dropdown), searchable by app name and window title. Select one to raise and focus it. |
+| **Switch Windows on Current Screen** | view | Lists application windows on every Space of the screen under the cursor, tagged with their Space and screen, and focuses the chosen one, switching Space if needed. |
 | **Focus Next Screen** | no-view | Moves the mouse cursor to the center of the next screen (cyclic). |
 | **List Screens** | view | Lists all displays with their resolution/position, flagging Main, Built-in/External, and Virtual/Physical. |
 | **List Spaces** | view | Lists Mission Control Spaces (Desktops) grouped by display, flagging the current Space. Read-only. |
@@ -16,7 +16,7 @@ warp the cursor between screens.
 | **Click at Cursor** | no-view | Synthesizes a left mouse click at the current cursor position (`CGEvent`). |
 | **Arrange Visible Windows** | no-view | Tiles the windows on the current screen into a weighted binary partition, each window sized in proportion to its current area. Gap between tiles is configurable in preferences. |
 
-The default scope of the switcher ("Current screen" / "All screens") is configurable
+The scope of the switcher ("Current screen" / "All screens") is configurable
 in the command preferences.
 
 ## How it works
@@ -27,7 +27,7 @@ cannot focus an arbitrary window, so this extension bundles a tiny native helper
 
 - reports the screen under the cursor (`NSEvent.mouseLocation` + `NSScreen`),
 - warps the cursor between screens (`CGWarpMouseCursorPosition`),
-- lists on-screen windows (`CGWindowListCopyWindowInfo`),
+- lists windows, on-screen or across all Spaces (`CGWindowListCopyWindowInfo`, `SLSCopySpacesForWindows`),
 - lists displays with their attributes (`NSScreen` + `CGDisplay*`),
 - lists Mission Control Spaces read-only via the private SkyLight framework
   (`SLSCopyManagedDisplaySpaces` on the app's own connection — no SIP changes, no

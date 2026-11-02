@@ -1,5 +1,10 @@
 # Window Switcher on Current Screen Changelog
 
+## [Windows on other Spaces] - {PR_MERGE_DATE}
+
+- Switch Windows: list windows on every Space, tag each with its Space and screen, and switch Space when focusing one.
+- Switch Windows: remove the scope dropdown; the scope is now set only in the command preferences.
+
 ## [Arrange Visible Windows] - {PR_MERGE_DATE}
 
 - Arrange Visible Windows: tile the windows on the current screen into a weighted binary partition, each sized in proportion to its current area, with a configurable gap. Applies frames via Accessibility (current Space only); apps with a minimum window size are honored best-effort.

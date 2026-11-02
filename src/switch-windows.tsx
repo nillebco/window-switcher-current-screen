@@ -29,6 +29,9 @@ type Win = {
   y: number;
   width: number;
   height: number;
+  space: string;
+  currentSpace: boolean;
+  screenName: string;
 };
 
 interface Preferences {
@@ -40,14 +43,14 @@ export default function SwitchWindows() {
   const [windows, setWindows] = useState<Win[]>([]);
   const [currentScreen, setCurrentScreen] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [scope, setScope] = useState<Scope>(prefs.defaultScope ?? "current");
+  const scope: Scope = prefs.defaultScope ?? "current";
 
   useEffect(() => {
     (async () => {
       try {
         const [{ stdout: screenOut }, { stdout: listOut }] = await Promise.all([
           run(BIN, ["current"]),
-          run(BIN, ["list"]),
+          run(BIN, ["list", "--all-spaces"]),
         ]);
         setCurrentScreen(Number.parseInt(screenOut.trim(), 10));
         setWindows(JSON.parse(listOut) as Win[]);
@@ -66,7 +69,13 @@ export default function SwitchWindows() {
   const shown = useMemo(() => {
     const filtered =
       scope === "current" && currentScreen != null ? windows.filter((w) => w.screen === currentScreen) : windows;
-    return [...filtered].sort((a, b) => a.app.localeCompare(b.app) || a.title.localeCompare(b.title));
+    return [...filtered].sort(
+      (a, b) =>
+        a.app.localeCompare(b.app) ||
+        Number(b.currentSpace) - Number(a.currentSpace) ||
+        a.space.localeCompare(b.space, undefined, { numeric: true }) ||
+        a.title.localeCompare(b.title)
+    );
   }, [windows, scope, currentScreen]);
 
   async function focus(win: Win) {
@@ -83,16 +92,7 @@ export default function SwitchWindows() {
   }
 
   return (
-    <List
-      isLoading={isLoading}
-      searchBarPlaceholder="Search windows by app or title…"
-      searchBarAccessory={
-        <List.Dropdown tooltip="Scope" value={scope} onChange={(value) => setScope(value as Scope)}>
-          <List.Dropdown.Item title="Current screen" value="current" />
-          <List.Dropdown.Item title="All screens" value="everywhere" />
-        </List.Dropdown>
-      }
-    >
+    <List isLoading={isLoading} searchBarPlaceholder="Search windows by app or title…">
       {shown.map((win) => (
         <List.Item
           key={win.id}
@@ -100,7 +100,7 @@ export default function SwitchWindows() {
           title={win.app}
           subtitle={win.title}
           keywords={[win.app, win.title]}
-          accessories={[{ tag: `Screen ${win.screen}` }]}
+          accessories={[{ tag: win.currentSpace ? `${win.space} (current)` : win.space }, { text: win.screenName }]}
           actions={
             <ActionPanel>
               <Action title="Focus Window" icon={Icon.Eye} onAction={() => focus(win)} />

@@ -7,7 +7,9 @@
 //   cursor-screen previous       → warps the cursor to the center of the previous screen (cyclic)
 //   cursor-screen list           → prints a JSON array of on-screen windows
 //                                  [{ id, pid, app, title, screen, x, y, width, height }]
-//   cursor-screen focus <id>     → raises the window with CGWindowID <id> and activates its app
+//   cursor-screen list --all-spaces → same, including windows on other Spaces, each with
+//                                  space (per-display label), currentSpace (bool) and screenName
+//   cursor-screen focus <id>     → focuses the window with CGWindowID <id>, switching Space if needed
 //   cursor-screen click [button] → synthesizes a mouse click at the current cursor position
 //                                  button ∈ { left (default), right, double }
 //   cursor-screen screens        → prints a JSON array of displays with raw attributes
@@ -121,8 +123,71 @@ func listScreens() {
 
 // MARK: - list
 
-func listWindows() {
-    let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+/// A Mission Control Space as shown to the user.
+struct SpaceInfo {
+    let label: String
+    let current: Bool
+    let displayID: Int?
+}
+
+/// Maps ManagedSpaceID → label. "Space N" restarts on each display.
+func spaceInfoByID() -> [Int: SpaceInfo] {
+    guard let handle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW),
+          let cidSym = dlsym(handle, "SLSMainConnectionID"),
+          let copySym = dlsym(handle, "SLSCopyManagedDisplaySpaces")
+    else { return [:] }
+
+    typealias MainConnectionIDFn = @convention(c) () -> Int32
+    typealias CopyManagedDisplaySpacesFn = @convention(c) (Int32) -> Unmanaged<CFArray>?
+    let mainConnectionID = unsafeBitCast(cidSym, to: MainConnectionIDFn.self)
+    let copyManagedDisplaySpaces = unsafeBitCast(copySym, to: CopyManagedDisplaySpacesFn.self)
+    guard let displays = copyManagedDisplaySpaces(mainConnectionID())?.takeRetainedValue() as? [[String: Any]] else {
+        return [:]
+    }
+
+    var uuidToDisplayID: [String: Int] = [:]
+    for screen in NSScreen.screens {
+        let displayID = CGDirectDisplayID(screenNumber(screen))
+        if let cfUUID = CGDisplayCreateUUIDFromDisplayID(displayID)?.takeRetainedValue() {
+            uuidToDisplayID[CFUUIDCreateString(nil, cfUUID) as String] = Int(displayID)
+        }
+    }
+
+    var out: [Int: SpaceInfo] = [:]
+    for display in displays {
+        var desktop = 0
+        let identifier = display["Display Identifier"] as? String ?? ""
+        let displayID = identifier == "Main" ? NSScreen.screens.first.map(screenNumber) : uuidToDisplayID[identifier]
+        let currentID = (display["Current Space"] as? [String: Any])?["ManagedSpaceID"] as? Int
+        for sp in display["Spaces"] as? [[String: Any]] ?? [] {
+            guard let id = sp["ManagedSpaceID"] as? Int ?? sp["id64"] as? Int else { continue }
+            let isDesktop = (sp["type"] as? Int ?? 0) == 0
+            if isDesktop { desktop += 1 }
+            out[id] = SpaceInfo(label: isDesktop ? "Space \(desktop)" : "Full Screen",
+                                current: id == currentID, displayID: displayID)
+        }
+    }
+    return out
+}
+
+/// ManagedSpaceIDs holding `windowID`. Empty for helper windows, which belong to no Space.
+func spaceIDs(forWindowID windowID: Int) -> [Int] {
+    guard let handle = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW),
+          let cidSym = dlsym(handle, "SLSMainConnectionID"),
+          let copySym = dlsym(handle, "SLSCopySpacesForWindows")
+    else { return [] }
+
+    typealias MainConnectionIDFn = @convention(c) () -> Int32
+    typealias CopySpacesForWindowsFn = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
+    let mainConnectionID = unsafeBitCast(cidSym, to: MainConnectionIDFn.self)
+    let copySpaces = unsafeBitCast(copySym, to: CopySpacesForWindowsFn.self)
+    let allSpacesMask: Int32 = 0x7
+    return copySpaces(mainConnectionID(), allSpacesMask, [windowID] as CFArray)?.takeRetainedValue() as? [Int] ?? []
+}
+
+func listWindows(allSpaces: Bool) {
+    let options: CGWindowListOption = allSpaces ? [.optionAll, .excludeDesktopElements] : [.optionOnScreenOnly, .excludeDesktopElements]
+    let spaces = allSpaces ? spaceInfoByID() : [:]
     guard let infoList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] else {
         print("[]")
         return
@@ -146,18 +211,29 @@ func listWindows() {
         // skip tiny helper/HUD windows
         if bounds.width < 50 || bounds.height < 50 { continue }
 
+        var spaceFields: [String: Any] = [:]
+        var spaceDisplayID: Int?
+        if allSpaces {
+            let known = spaceIDs(forWindowID: windowID).compactMap { spaces[$0] }
+            guard let space = known.first(where: { $0.current }) ?? known.first else { continue }
+            spaceDisplayID = space.displayID
+            let screenID = spaceDisplayID ?? screenNumberContaining(point: CGPoint(x: bounds.midX, y: bounds.midY))
+            let screenName = NSScreen.screens.first { screenNumber($0) == screenID }?.localizedName ?? ""
+            spaceFields = ["space": space.label, "currentSpace": space.current, "screenName": screenName]
+        }
+
         let center = CGPoint(x: bounds.midX, y: bounds.midY)
-        items.append([
+        items.append(spaceFields.merging([
             "id": windowID,
             "pid": pid,
             "app": app,
             "title": title,
-            "screen": screenNumberContaining(point: center),
+            "screen": spaceDisplayID ?? screenNumberContaining(point: center),
             "x": Int(bounds.origin.x),
             "y": Int(bounds.origin.y),
             "width": Int(bounds.width),
             "height": Int(bounds.height),
-        ])
+        ]) { _, new in new })
     }
 
     if let data = try? JSONSerialization.data(withJSONObject: items),
@@ -219,14 +295,52 @@ func axWindow(forWindowID windowID: CGWindowID) -> (pid: pid_t, app: AXUIElement
     return (pid, appAX, win)
 }
 
-func focusWindow(windowID: CGWindowID) -> Bool {
-    guard let (pid, appAX, win) = axWindow(forWindowID: windowID) else { return false }
+/// Fronts a specific window through SkyLight, which also switches to its Space.
+/// AX can't do this: it only sees windows on the current Space.
+func frontWindow(pid: pid_t, windowID: CGWindowID) -> Bool {
+    guard let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_NOW),
+          let hiServices = dlopen("/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices", RTLD_NOW),
+          let frontSym = dlsym(skyLight, "_SLPSSetFrontProcessWithOptions"),
+          let postSym = dlsym(skyLight, "SLPSPostEventRecordTo"),
+          let psnSym = dlsym(hiServices, "GetProcessForPID")
+    else { return false }
 
-    // Bring the owning application forward first…
-    NSRunningApplication(processIdentifier: pid)?.activate()
-    // …then raise/focus the specific window.
-    AXUIElementPerformAction(win, kAXRaiseAction as CFString)
-    AXUIElementSetAttributeValue(appAX, kAXFocusedWindowAttribute as CFString, win)
+    typealias GetProcessForPIDFn = @convention(c) (pid_t, UnsafeMutableRawPointer) -> Int32
+    typealias SetFrontFn = @convention(c) (UnsafeRawPointer, CGWindowID, UInt32) -> Int32
+    typealias PostEventFn = @convention(c) (UnsafeRawPointer, UnsafeRawPointer) -> Int32
+    let getProcessForPID = unsafeBitCast(psnSym, to: GetProcessForPIDFn.self)
+    let setFront = unsafeBitCast(frontSym, to: SetFrontFn.self)
+    let postEvent = unsafeBitCast(postSym, to: PostEventFn.self)
+
+    var psn = [UInt32](repeating: 0, count: 2)
+    guard psn.withUnsafeMutableBytes({ getProcessForPID(pid, $0.baseAddress!) }) == 0 else { return false }
+
+    let userGenerated: UInt32 = 0x200
+    guard setFront(psn, windowID, userGenerated) == 0 else { return false }
+
+    // Event record that makes the window key (layout as used by yabai and AltTab).
+    var event = [UInt8](repeating: 0, count: 0xf8)
+    event[0x04] = 0xf8
+    event[0x3a] = 0x10
+    withUnsafeBytes(of: windowID) { event.replaceSubrange(0x3c..<0x40, with: $0) }
+    event.replaceSubrange(0x20..<0x30, with: [UInt8](repeating: 0xff, count: 0x10))
+    for phase: UInt8 in [0x01, 0x02] {
+        event[0x08] = phase
+        _ = postEvent(psn, event)
+    }
+    return true
+}
+
+func focusWindow(windowID: CGWindowID) -> Bool {
+    guard let pidInt = windowInfo(for: windowID)?[kCGWindowOwnerPID as String] as? Int,
+          frontWindow(pid: pid_t(pidInt), windowID: windowID)
+    else { return false }
+
+    // Raise it above the app's other windows, once the Space switch makes it visible to AX.
+    Thread.sleep(forTimeInterval: 0.25)
+    if let (_, _, win) = axWindow(forWindowID: windowID) {
+        AXUIElementPerformAction(win, kAXRaiseAction as CFString)
+    }
     return true
 }
 
@@ -387,7 +501,7 @@ case "next", "previous":
     CGAssociateMouseAndMouseCursorPosition(1)
 
 case "list":
-    listWindows()
+    listWindows(allSpaces: args.contains("--all-spaces"))
 
 case "screens":
     listScreens()
